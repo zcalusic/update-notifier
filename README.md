@@ -11,6 +11,9 @@ Update notifier displays notification and an icon in the panel tray area when De
 can hover the mouse over the icon to check how many updates are available. It's especially suitable for Debian
 testing/unstable users, because it checks for updates very often. Developed and tested on Xfce desktop environment.
 
+![notification](https://cloud.githubusercontent.com/assets/12140851/17998625/ac821782-6b75-11e6-911a-dc0e9f2cffa0.png)
+![trayicon](https://cloud.githubusercontent.com/assets/12140851/17998626/ac84dfda-6b75-11e6-8ac7-c06486ff6a37.png)
+
 ## Motivation
 
 Once upon a time, there was this neat little package in the Debian GNU/Linux repository called update-notifier. It
