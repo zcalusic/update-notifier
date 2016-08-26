@@ -15,6 +15,16 @@ branches:
   only:
     - master
 
+addons:
+  apt:
+    packages:
+    - libnotify-dev
+    - libgtk2.0-dev
+
+install: go get -t -v
+
+script: go test -v
+
 notifications:
   email:
     on_success: always
