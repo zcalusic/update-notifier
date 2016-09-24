@@ -126,14 +126,13 @@ func updatesAvailable() int {
 
 		cmd := exec.Command("/usr/bin/apt-get", "-s", "dist-upgrade")
 		cmd.Stdout = &out
-		if err := cmd.Run(); err != nil {
-			log.Fatal(err)
-		}
+		if err := cmd.Run(); err == nil {
 
-		if sl := regexp.MustCompile(`(?m:^(\d+) upgraded, (\d+) newly installed)`).FindStringSubmatch(out.String()); len(sl) == 3 {
-			if upgraded, err := strconv.Atoi(sl[1]); err == nil {
-				if newInstall, err := strconv.Atoi(sl[2]); err == nil {
-					updAvailable = upgraded + newInstall
+			if sl := regexp.MustCompile(`(?m:^(\d+) upgraded, (\d+) newly installed)`).FindStringSubmatch(out.String()); len(sl) == 3 {
+				if upgraded, err := strconv.Atoi(sl[1]); err == nil {
+					if newInstall, err := strconv.Atoi(sl[2]); err == nil {
+						updAvailable = upgraded + newInstall
+					}
 				}
 			}
 		}
