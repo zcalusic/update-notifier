@@ -1,0 +1,11 @@
+# github.com/mattn/go-gtk v0.0.0-20180910144212-ab259656e6a4
+github.com/mattn/go-gtk/glib
+github.com/mattn/go-gtk/gtk
+github.com/mattn/go-gtk/gdk
+github.com/mattn/go-gtk/gdkpixbuf
+github.com/mattn/go-gtk/gio
+github.com/mattn/go-gtk/pango
+# github.com/mattn/go-pointer v0.0.0-20180825124634-49522c3f3791
+github.com/mattn/go-pointer
+# github.com/mqu/go-notify v0.0.0-20130719194048-ef6f6f49d093
+github.com/mqu/go-notify
