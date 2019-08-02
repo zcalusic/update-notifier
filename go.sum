@@ -1,12 +1,6 @@
-github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
-github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/mattn/go-gtk v0.0.0-20180910144212-ab259656e6a4 h1:UbHlf0T8cVJTag4jydY2/RXrWWUIm9g7E+lA2x8E7So=
-github.com/mattn/go-gtk v0.0.0-20180910144212-ab259656e6a4/go.mod h1:PwzwfeB5syFHXORC3MtPylVcjIoTDT/9cvkKpEndGVI=
+github.com/mattn/go-gtk v0.0.0-20190405072524-4deadb416788 h1:y6KPjcY0SVK6Qcpyg7PQvp1x8BwxS0aZrQCNP59nDR4=
+github.com/mattn/go-gtk v0.0.0-20190405072524-4deadb416788/go.mod h1:PwzwfeB5syFHXORC3MtPylVcjIoTDT/9cvkKpEndGVI=
 github.com/mattn/go-pointer v0.0.0-20180825124634-49522c3f3791 h1:PfHMsLQJwoc0ccjK0sam6J0wQo4s8mOuAo2yQGw+T2U=
 github.com/mattn/go-pointer v0.0.0-20180825124634-49522c3f3791/go.mod h1:2zXcozF6qYGgmsG+SeTZz3oAbFLdD3OWqnUbNvJZAlc=
 github.com/mqu/go-notify v0.0.0-20130719194048-ef6f6f49d093 h1:OvySnanP8CQIKS+MTq9AXBwEXzm0YaKeu331bWql3ug=
 github.com/mqu/go-notify v0.0.0-20130719194048-ef6f6f49d093/go.mod h1:AthsKyBZ9hqwU7DBWFiOxYObyF8nVyYVubXv/pQNC5E=
-github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
-github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/stretchr/testify v1.2.2 h1:bSDNvY7ZPG5RlJ8otE/7V6gMiyenm9RtJ7IUVIAoJ1w=
-github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
