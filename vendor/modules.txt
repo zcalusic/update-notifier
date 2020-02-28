@@ -1,4 +1,4 @@
-# github.com/mattn/go-gtk v0.0.0-20190405072524-4deadb416788
+# github.com/mattn/go-gtk v0.0.0-20191030024613-af2e013261f5
 github.com/mattn/go-gtk/gdk
 github.com/mattn/go-gtk/gdkpixbuf
 github.com/mattn/go-gtk/gio
