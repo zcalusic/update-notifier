@@ -35,8 +35,8 @@ To compile:
 To run:
 - libgtk2.0-0
 - libnotify4
-- apt (to check for updates)
-- adwaita-icon-theme (icons)
+- gnome-icon-theme (icons)
+- apt-get (to check for updates)
 - apt-daily.timer (or similar, to periodically update package lists in the background)
 
 ## Installation

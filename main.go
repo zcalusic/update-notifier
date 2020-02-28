@@ -50,7 +50,7 @@ func showNotification(text string) {
 	defer notify.UnInit()
 
 	if notification := notify.NotificationNew("Software updates available", text,
-		"/usr/share/icons/Adwaita/48x48/status/software-update-available.png"); notification != nil {
+		"/usr/share/icons/gnome/48x48/status/software-update-available.png"); notification != nil {
 		notify.NotificationShow(notification) // ignore errors
 	}
 }
@@ -148,7 +148,7 @@ func main() {
 	gtk.Init(nil)
 	glib.SetApplicationName("update-notifier")
 
-	icon := gtk.NewStatusIconFromFile("/usr/share/icons/Adwaita/24x24/status/software-update-available.png")
+	icon := gtk.NewStatusIconFromFile("/usr/share/icons/gnome/24x24/status/software-update-available.png")
 	icon.SetTitle("update-notifier")
 	icon.SetVisible(false)
 
