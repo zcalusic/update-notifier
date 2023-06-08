@@ -10,4 +10,5 @@ require (
 require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/stretchr/testify v1.7.0 // indirect
+	golang.org/x/sys v0.0.0-20210303074136-134d130e1a04
 )
