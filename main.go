@@ -11,10 +11,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os/exec"
-	"path"
 	"regexp"
 	"strconv"
 	"time"
@@ -22,6 +20,8 @@ import (
 	"github.com/mattn/go-gtk/glib"
 	"github.com/mattn/go-gtk/gtk"
 	notify "github.com/mqu/go-notify"
+
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -82,33 +82,43 @@ func userNotify(icon *gtk.StatusIcon) {
 // Check if package manager is running (every 5 seconds).
 func isAptRunning() bool {
 	if time.Since(aptLastCheck) >= 5*time.Second {
-		aptRunning = false
+		aptRunning = true
 
-		dir, err := ioutil.ReadDir("/proc")
-		if err != nil {
-			log.Fatal(err)
+		files := []string{
+			"/var/lib/dpkg/lock",
+			"/var/lib/dpkg/lock-frontend",
 		}
 
-		reApt := regexp.MustCompile(`(?m:^(apt-get|dselect|aptitude)$)`)
-		reProcess := regexp.MustCompile(`^\d+$`)
+		var (
+			fd  int
+			err error
+		)
 
-		for _, v := range dir {
-			if !v.IsDir() {
-				continue
-			}
+		for _, file := range files {
 
-			if !reProcess.MatchString(v.Name()) {
-				continue
-			}
-
-			comm, err := ioutil.ReadFile(path.Join("/proc", v.Name(), "comm"))
+			fd, err = unix.Open(file, unix.O_WRONLY, 640)
 			if err != nil {
-				continue
+				log.Fatalf("File %s open failed. Error: %v\n", file, err)
+			}
+			defer unix.Close(fd)
+
+			var fl unix.Flock_t
+			fl.Len = 0
+			fl.Type = unix.F_RDLCK
+
+			err = unix.FcntlFlock(uintptr(fd), unix.F_GETLK, &fl)
+			if err != nil {
+				log.Fatal(err)
 			}
 
-			if reApt.Match(comm) {
-				aptRunning = true
+			if fl.Type != unix.F_UNLCK {
+
+				log.Printf("File %s locked.\n", file)
+				log.Printf("Some dpkg frontend is in use. PID: %d", fl.Pid)
+
+				aptRunning = false
 				updLastCheck = time.Time{}
+
 				break
 			}
 		}
