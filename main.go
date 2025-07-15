@@ -11,8 +11,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
@@ -84,7 +84,7 @@ func isAptRunning() bool {
 	if time.Since(aptLastCheck) >= 5*time.Second {
 		aptRunning = false
 
-		dir, err := ioutil.ReadDir("/proc")
+		dir, err := os.ReadDir("/proc")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func isAptRunning() bool {
 				continue
 			}
 
-			comm, err := ioutil.ReadFile(path.Join("/proc", v.Name(), "comm"))
+			comm, err := os.ReadFile(path.Join("/proc", v.Name(), "comm"))
 			if err != nil {
 				continue
 			}
