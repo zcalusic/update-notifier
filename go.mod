@@ -1,6 +1,6 @@
 module github.com/zcalusic/update-notifier
 
-go 1.23
+go 1.24
 
 require (
 	github.com/mattn/go-gtk v0.0.0-20240119050609-48574e312fac
