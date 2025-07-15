@@ -51,7 +51,7 @@ func showNotification(text string) {
 
 	if notification := notify.NotificationNew("Software updates available", text,
 		"/usr/share/icons/gnome/48x48/status/software-update-available.png"); notification != nil {
-		notify.NotificationShow(notification) // ignore errors
+		_ = notify.NotificationShow(notification) // ignore errors
 	}
 }
 
