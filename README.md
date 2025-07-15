@@ -22,9 +22,6 @@ notified when package updates were available. Nowadays, the same named package i
 and is depending on quite a large number of other application and library packages. But, I wanted just the icon! So, I
 used that as an excuse to see how hard it would be to write something like that in Go. Not at all, it seems.
 
-P.S. The original package seems to still be available in Ubuntu Linux
-[here](http://bazaar.launchpad.net/~ubuntu-core-dev/update-notifier/ubuntu/files).
-
 ## Requirements
 
 To compile:
