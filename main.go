@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -53,6 +54,10 @@ var (
 	reLock    = regexp.MustCompile(`[0-9a-f]+:[0-9a-f]+:(\d+) `)
 	reSummary = regexp.MustCompile(`(?m:^(\d+) upgraded, (\d+) newly installed)`)
 )
+
+func init() {
+	runtime.LockOSThread() // all GTK calls must come from the thread that initialized it
+}
 
 // tray is the part of the desktop that the notifier talks to.
 type tray interface {
@@ -269,17 +274,18 @@ func serve() {
 	}
 
 	// Don't fight with system notifications during login.
-	time.Sleep(15 * time.Second)
-
-	for {
+	glib.TimeoutAdd(15000, func() bool {
 		n.tick()
 
-		for gtk.EventsPending() {
-			gtk.MainIteration()
-		}
+		glib.TimeoutAdd(1000, func() bool {
+			n.tick()
+			return true // keep the timer running
+		})
 
-		time.Sleep(time.Second / 10)
-	}
+		return false // the first check is done only once
+	})
+
+	gtk.Main()
 }
 
 // run handles the command line, and calls start if there's nothing else to do.
