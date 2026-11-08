@@ -1,15 +1,14 @@
 # Update notifier
 
-[![Build Status](https://travis-ci.org/zcalusic/update-notifier.svg?branch=master)](https://travis-ci.org/zcalusic/update-notifier)
-[![Go Report Card](https://goreportcard.com/badge/github.com/zcalusic/update-notifier)](https://goreportcard.com/report/github.com/zcalusic/update-notifier)
-[![GoDoc](https://godoc.org/github.com/zcalusic/update-notifier?status.svg)](https://godoc.org/github.com/zcalusic/update-notifier)
+[![Build Status](https://github.com/zcalusic/update-notifier/actions/workflows/go.yml/badge.svg)](https://github.com/zcalusic/update-notifier/actions/workflows/go.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zcalusic/update-notifier.svg)](https://pkg.go.dev/github.com/zcalusic/update-notifier)
 [![License](https://img.shields.io/badge/license-MIT-a31f34.svg?maxAge=2592000)](https://github.com/zcalusic/update-notifier/blob/master/LICENSE)
-[![Powered by](https://img.shields.io/badge/powered_by-Go-5272b4.svg?maxAge=2592000)](https://golang.org/)
+[![Powered by](https://img.shields.io/badge/powered_by-Go-5272b4.svg?maxAge=2592000)](https://go.dev/)
 [![Platform](https://img.shields.io/badge/platform-Linux-009bde.svg?maxAge=2592000)](https://www.linuxfoundation.org/)
 
 Update notifier displays notification and an icon in the panel tray area when Debian package updates are available. You
 can hover the mouse over the icon to check how many updates are available. It's especially suitable for Debian
-testing/unstable users, because it checks for updates very often. Developed and tested on Xfce desktop environment.
+testing/unstable users, because it checks for updates very often. Developed and tested on Xfce desktop environment, currently on Debian trixie.
 
 ![notification](https://cloud.githubusercontent.com/assets/12140851/17998625/ac821782-6b75-11e6-911a-dc0e9f2cffa0.png)
 &nbsp;
@@ -25,7 +24,7 @@ used that as an excuse to see how hard it would be to write something like that 
 ## Requirements
 
 To compile:
-- Go 1.6+
+- Go 1.27+
 - libgtk2.0-dev
 - libnotify-dev
 
@@ -38,10 +37,8 @@ To run:
 
 ## Installation
 
-Just use go get.
-
 ```
-go get github.com/zcalusic/update-notifier
+go install github.com/zcalusic/update-notifier@latest
 ```
 
 Here's a simple desktop file you can save as ```~/.config/autostart/update-notifier.desktop```, so that application is
@@ -60,6 +57,18 @@ Type=Application
 Categories=
 Hidden=false
 ```
+
+## Usage
+
+```
+update-notifier [-h] [-version]
+```
+
+Without arguments, it stays running and shows the icon whenever updates are available. The first check is done 15 seconds after the start, and after that it runs a simulated upgrade (```apt-get -s dist-upgrade```) every 5 minutes, which needs no special privileges. It doesn't refresh the package lists itself.
+
+The icon is hidden while a package manager is working, and updates are checked again as soon as it finishes. Package managers are detected by the locks they hold on the dpkg and apt lock files, which any user can see in ```/proc/locks```, so it doesn't matter which one is used.
+
+If a check fails, the error is logged to standard error and the previous number of updates is kept. The exit status is 2 for invalid arguments.
 
 ## Contributors
 
