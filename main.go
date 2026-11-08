@@ -89,6 +89,7 @@ type notifier struct {
 	lockFiles []string               // files that a package manager locks
 	simulate  func() (string, error) // output of a simulated upgrade
 	now       func() time.Time
+	logger    *log.Logger
 
 	aptRunning   bool
 	aptLastCheck time.Time
@@ -127,7 +128,8 @@ func (n *notifier) userNotify() {
 func (n *notifier) lockHeld() bool {
 	locks, err := os.ReadFile(n.locksFile)
 	if err != nil {
-		log.Fatal(err)
+		n.logger.Printf("can't check for a running package manager: %v", err)
+		return false
 	}
 
 	held := make(map[string]bool)
@@ -183,14 +185,27 @@ func parseSummary(out string) (int, bool) {
 	return upgraded + newInstall, true
 }
 
+// checkUpdates runs a simulated upgrade, keeping the previous count if that fails.
+func (n *notifier) checkUpdates() {
+	out, err := n.simulate()
+	if err != nil {
+		n.logger.Printf("can't check for updates: %v", err)
+		return
+	}
+
+	count, ok := parseSummary(out)
+	if !ok {
+		n.logger.Print("can't check for updates: no summary line in apt-get output")
+		return
+	}
+
+	n.updAvailable = count
+}
+
 // Check if updates are available (every 5 minutes).
 func (n *notifier) updatesAvailable() int {
 	if n.now().Sub(n.updLastCheck) >= 5*time.Minute {
-		if out, err := n.simulate(); err == nil {
-			if count, ok := parseSummary(out); ok {
-				n.updAvailable = count
-			}
-		}
+		n.checkUpdates()
 
 		n.updLastCheck = n.now()
 	}
@@ -238,6 +253,7 @@ func main() {
 		lockFiles: packageLocks,
 		simulate:  func() (string, error) { return aptSimulate(aptGet) },
 		now:       time.Now,
+		logger:    log.Default(),
 	}
 
 	// Don't fight with system notifications during login.

@@ -5,8 +5,10 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -66,6 +68,7 @@ type harness struct {
 	out     string
 	err     error
 	simRuns int
+	logs    bytes.Buffer
 }
 
 func newHarness(t *testing.T) *harness {
@@ -78,6 +81,7 @@ func newHarness(t *testing.T) *harness {
 		locksFile: filepath.Join(dir, "locks"),
 		lockFiles: []string{touch(t, dir, "lock-frontend"), touch(t, dir, "lock"), touch(t, dir, "lists-lock")},
 		now:       func() time.Time { return h.clock },
+		logger:    log.New(&h.logs, "", 0),
 		simulate: func() (string, error) {
 			h.simRuns++
 			return h.out, h.err
@@ -439,5 +443,67 @@ func TestTickDoesNotNotifyAgainAfterAptRuns(t *testing.T) {
 
 	if !h.fake.visible || len(h.fake.notifications) != 1 {
 		t.Errorf("visible %v, notifications %q, want the icon back and a single notification", h.fake.visible, h.fake.notifications)
+	}
+}
+
+func TestFailedChecksAreLogged(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		err  error
+		want string
+	}{
+		{"apt-get failed", "", errors.New("exit status 100"), "exit status 100"},
+		{"no summary", "garbage\n", nil, "no summary line"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.out, h.err = tt.out, tt.err
+			h.updatesAvailable()
+
+			if !strings.Contains(h.logs.String(), tt.want) {
+				t.Errorf("log %q, want it to mention %q", h.logs.String(), tt.want)
+			}
+
+			h.updatesAvailable() // same 5 minutes: no second attempt, no second log line
+
+			if got := strings.Count(h.logs.String(), "\n"); got != 1 {
+				t.Errorf("log %q, want a single line", h.logs.String())
+			}
+		})
+	}
+}
+
+func TestSuccessfulChecksAreNotLogged(t *testing.T) {
+	h := newHarness(t)
+	h.out = summary(2)
+	h.tick()
+
+	if h.logs.Len() != 0 {
+		t.Errorf("log %q, want nothing", h.logs.String())
+	}
+}
+
+func TestUnreadableLocksAreNotFatal(t *testing.T) {
+	h := newHarness(t)
+	h.locksFile = filepath.Join(t.TempDir(), "missing")
+
+	if h.isAptRunning() {
+		t.Error("nothing can be seen running")
+	}
+
+	h.isAptRunning() // same 5 seconds: no second attempt, no second log line
+
+	if got := strings.Count(h.logs.String(), "can't check"); got != 1 {
+		t.Errorf("log %q, want a single line", h.logs.String())
+	}
+
+	h.clock = h.clock.Add(5 * time.Second)
+	h.isAptRunning()
+
+	if got := strings.Count(h.logs.String(), "can't check"); got != 2 {
+		t.Errorf("log %q, want one more line after 5 seconds", h.logs.String())
 	}
 }
