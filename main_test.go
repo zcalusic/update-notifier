@@ -69,6 +69,8 @@ type harness struct {
 	err     error
 	simRuns int
 	logs    bytes.Buffer
+
+	statusChanges int
 }
 
 func newHarness(t *testing.T) *harness {
@@ -77,11 +79,12 @@ func newHarness(t *testing.T) *harness {
 	dir := t.TempDir()
 	h := &harness{fake: &fakeTray{}, clock: time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)}
 	h.notifier = &notifier{
-		tray:      h.fake,
-		locksFile: filepath.Join(dir, "locks"),
-		lockFiles: []string{touch(t, dir, "lock-frontend"), touch(t, dir, "lock"), touch(t, dir, "lists-lock")},
-		now:       func() time.Time { return h.clock },
-		logger:    log.New(&h.logs, "", 0),
+		tray:       h.fake,
+		locksFile:  filepath.Join(dir, "locks"),
+		lockFiles:  []string{touch(t, dir, "lock-frontend"), touch(t, dir, "lock"), touch(t, dir, "lists-lock")},
+		statusFile: touch(t, dir, "status"),
+		now:        func() time.Time { return h.clock },
+		logger:     log.New(&h.logs, "", 0),
 		simulate: func() (string, error) {
 			h.simRuns++
 			return h.out, h.err
@@ -222,14 +225,14 @@ func TestIsAptRunningThrottled(t *testing.T) {
 
 	h.holdLock(t)
 
-	h.clock = h.clock.Add(4 * time.Second)
+	h.clock = h.clock.Add(900 * time.Millisecond)
 	if h.isAptRunning() {
-		t.Error("checked again before 5 seconds passed")
+		t.Error("checked again before a second passed")
 	}
 
-	h.clock = h.clock.Add(time.Second)
+	h.clock = h.clock.Add(100 * time.Millisecond)
 	if !h.isAptRunning() {
-		t.Error("didn't check again after 5 seconds")
+		t.Error("didn't check again after a second")
 	}
 }
 
@@ -488,23 +491,95 @@ func TestSuccessfulChecksAreNotLogged(t *testing.T) {
 
 func TestUnreadableLocksAreNotFatal(t *testing.T) {
 	h := newHarness(t)
+	readable := h.locksFile
 	h.locksFile = filepath.Join(t.TempDir(), "missing")
 
 	if h.isAptRunning() {
 		t.Error("nothing can be seen running")
 	}
 
-	h.isAptRunning() // same 5 seconds: no second attempt, no second log line
+	// It keeps failing: no flood of log lines.
+	h.clock = h.clock.Add(time.Second)
+	h.isAptRunning()
 
 	if got := strings.Count(h.logs.String(), "can't check"); got != 1 {
 		t.Errorf("log %q, want a single line", h.logs.String())
 	}
 
-	h.clock = h.clock.Add(5 * time.Second)
+	// It recovers and fails again: that's worth another line.
+	h.locksFile = readable
+	h.clock = h.clock.Add(time.Second)
+	h.isAptRunning()
+
+	h.locksFile = filepath.Join(t.TempDir(), "missing")
+	h.clock = h.clock.Add(time.Second)
 	h.isAptRunning()
 
 	if got := strings.Count(h.logs.String(), "can't check"); got != 2 {
-		t.Errorf("log %q, want one more line after 5 seconds", h.logs.String())
+		t.Errorf("log %q, want one more line", h.logs.String())
+	}
+}
+
+// changeStatus pretends that dpkg has just rewritten its status file.
+func (h *harness) changeStatus(t *testing.T) {
+	t.Helper()
+
+	h.statusChanges++
+	stamp := h.clock.Add(time.Duration(h.statusChanges) * time.Hour)
+
+	if err := os.Chtimes(h.statusFile, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPackageChangeForcesRecheck(t *testing.T) {
+	h := newHarness(t)
+	h.out = summary(1)
+	h.tick()
+
+	if !h.fake.visible || h.simRuns != 1 {
+		t.Fatalf("visible %v after %d runs", h.fake.visible, h.simRuns)
+	}
+
+	// A package manager came and went between two looks at the locks.
+	h.changeStatus(t)
+	h.out = summary(0)
+	h.clock = h.clock.Add(time.Second)
+	h.tick()
+
+	if h.fake.visible || h.simRuns != 2 {
+		t.Errorf("visible %v after %d runs, want hidden after 2", h.fake.visible, h.simRuns)
+	}
+}
+
+func TestUnchangedPackagesDoNotForceRecheck(t *testing.T) {
+	h := newHarness(t)
+	h.out = summary(1)
+
+	for range 3 {
+		h.tick()
+		h.clock = h.clock.Add(time.Second)
+	}
+
+	if h.simRuns != 1 {
+		t.Errorf("%d runs, want 1", h.simRuns)
+	}
+}
+
+func TestMissingStatusFile(t *testing.T) {
+	h := newHarness(t)
+	h.out = summary(1)
+
+	if err := os.Remove(h.statusFile); err != nil {
+		t.Fatal(err)
+	}
+
+	h.tick()
+	h.clock = h.clock.Add(time.Second)
+	h.tick()
+
+	if h.simRuns != 1 {
+		t.Errorf("%d runs, want 1", h.simRuns)
 	}
 }
 

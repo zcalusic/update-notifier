@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	aptGet    = "/usr/bin/apt-get"
-	procLocks = "/proc/locks"
+	aptGet     = "/usr/bin/apt-get"
+	procLocks  = "/proc/locks"
+	dpkgStatus = "/var/lib/dpkg/status"
 
 	usage = `Usage: update-notifier [-h] [-version]
 
@@ -100,15 +101,18 @@ func (gtkTray) notify(text string) {
 
 // notifier holds the state of the update checks.
 type notifier struct {
-	tray      tray
-	locksFile string                 // /proc/locks
-	lockFiles []string               // files that a package manager locks
-	simulate  func() (string, error) // output of a simulated upgrade
-	now       func() time.Time
-	logger    *log.Logger
+	tray       tray
+	locksFile  string                 // /proc/locks
+	lockFiles  []string               // files that a package manager locks
+	statusFile string                 // rewritten by dpkg whenever packages change
+	simulate   func() (string, error) // output of a simulated upgrade
+	now        func() time.Time
+	logger     *log.Logger
 
 	aptRunning   bool
 	aptLastCheck time.Time
+	statusTime   time.Time // modification time of statusFile, when last seen
+	locksFailed  bool      // reading locksFile failed, and that has been logged
 	updLastCheck time.Time
 	updAvailable int
 	updTooltip   int
@@ -144,9 +148,15 @@ func (n *notifier) userNotify() {
 func (n *notifier) lockHeld() bool {
 	locks, err := os.ReadFile(n.locksFile)
 	if err != nil {
-		n.logger.Printf("can't check for a running package manager: %v", err)
+		if !n.locksFailed {
+			n.logger.Printf("can't check for a running package manager: %v", err)
+			n.locksFailed = true
+		}
+
 		return false
 	}
+
+	n.locksFailed = false
 
 	held := make(map[string]bool)
 	for _, m := range reLock.FindAllSubmatch(locks, -1) {
@@ -167,11 +177,25 @@ func (n *notifier) lockHeld() bool {
 	return false
 }
 
-// Check if package manager is running (every 5 seconds).
+// packagesChanged reports whether the status file changed since the last call. A package manager can come and go between
+// two looks at its locks, but it can't change the packages without leaving this behind.
+func (n *notifier) packagesChanged() bool {
+	info, err := os.Stat(n.statusFile)
+	if err != nil {
+		return false
+	}
+
+	changed := !info.ModTime().Equal(n.statusTime)
+	n.statusTime = info.ModTime()
+
+	return changed
+}
+
+// Check if package manager is running (every second).
 func (n *notifier) isAptRunning() bool {
-	if n.now().Sub(n.aptLastCheck) >= 5*time.Second {
+	if n.now().Sub(n.aptLastCheck) >= time.Second {
 		n.aptRunning = n.lockHeld()
-		if n.aptRunning {
+		if n.aptRunning || n.packagesChanged() {
 			n.updLastCheck = time.Time{}
 		}
 
@@ -265,12 +289,13 @@ func serve() {
 	icon.SetVisible(false)
 
 	n := &notifier{
-		tray:      gtkTray{icon: icon},
-		locksFile: procLocks,
-		lockFiles: packageLocks,
-		simulate:  func() (string, error) { return aptSimulate(aptGet) },
-		now:       time.Now,
-		logger:    log.Default(),
+		tray:       gtkTray{icon: icon},
+		locksFile:  procLocks,
+		lockFiles:  packageLocks,
+		statusFile: dpkgStatus,
+		simulate:   func() (string, error) { return aptSimulate(aptGet) },
+		now:        time.Now,
+		logger:     log.Default(),
 	}
 
 	// Don't fight with system notifications during login.
