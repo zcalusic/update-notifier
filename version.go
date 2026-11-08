@@ -5,4 +5,4 @@
 package main
 
 // Version of the update-notifier utility.
-const Version = "0.0.0"
+const Version = "1.0.0"
