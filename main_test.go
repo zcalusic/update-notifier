@@ -336,7 +336,7 @@ func TestAptSimulateUntranslated(t *testing.T) {
 	}
 }
 
-func TestTickSameCountAfterNoUpdates(t *testing.T) {
+func TestTickNotifiesAgainAfterNoUpdates(t *testing.T) {
 	h := newHarness(t)
 
 	h.out = summary(5)
@@ -348,6 +348,25 @@ func TestTickSameCountAfterNoUpdates(t *testing.T) {
 
 	h.out = summary(5)
 	h.clock = h.clock.Add(5 * time.Minute)
+	h.tick()
+
+	if !h.fake.visible || len(h.fake.notifications) != 2 {
+		t.Errorf("visible %v, notifications %q, want the icon back and one notification for each batch", h.fake.visible, h.fake.notifications)
+	}
+}
+
+func TestTickDoesNotNotifyAgainAfterAptRuns(t *testing.T) {
+	h := newHarness(t)
+
+	h.out = summary(5)
+	h.tick()
+
+	h.procDir = writeProc(t, "apt-get")
+	h.clock = h.clock.Add(5 * time.Second)
+	h.tick()
+
+	h.procDir = writeProc(t, "bash")
+	h.clock = h.clock.Add(5 * time.Second)
 	h.tick()
 
 	if !h.fake.visible || len(h.fake.notifications) != 1 {

@@ -187,10 +187,14 @@ func (n *notifier) updatesAvailable() int {
 
 // tick is one pass of the main loop.
 func (n *notifier) tick() {
-	if !n.isAptRunning() && n.updatesAvailable() > 0 {
-		n.userNotify()
-	} else {
+	switch {
+	case n.isAptRunning():
 		n.tray.hide()
+	case n.updatesAvailable() > 0:
+		n.userNotify()
+	default:
+		n.tray.hide()
+		n.updNotified = 0 // whatever comes next is news, even if the count is the same as before
 	}
 }
 
