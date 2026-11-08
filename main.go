@@ -24,28 +24,47 @@ import (
 	notify "github.com/mqu/go-notify"
 )
 
-var (
-	aptRunning   bool
-	aptLastCheck time.Time
-	updLastCheck time.Time
-	updAvailable int
-	updTooltip   int
-	updNotified  int
+const (
+	aptGet  = "/usr/bin/apt-get"
+	procDir = "/proc"
 )
 
-func showIcon(icon *gtk.StatusIcon) {
-	if !icon.GetVisible() {
-		icon.SetVisible(true)
+var (
+	reApt     = regexp.MustCompile(`(?m:^(apt-get|dselect|aptitude)$)`)
+	reProcess = regexp.MustCompile(`^\d+$`)
+	reSummary = regexp.MustCompile(`(?m:^(\d+) upgraded, (\d+) newly installed)`)
+)
+
+// tray is the part of the desktop that the notifier talks to.
+type tray interface {
+	show()
+	hide()
+	setTooltip(text string)
+	notify(text string)
+}
+
+// gtkTray is a tray backed by a GTK status icon and libnotify.
+type gtkTray struct {
+	icon *gtk.StatusIcon
+}
+
+func (t gtkTray) show() {
+	if !t.icon.GetVisible() {
+		t.icon.SetVisible(true)
 	}
 }
 
-func hideIcon(icon *gtk.StatusIcon) {
-	if icon.GetVisible() {
-		icon.SetVisible(false)
+func (t gtkTray) hide() {
+	if t.icon.GetVisible() {
+		t.icon.SetVisible(false)
 	}
 }
 
-func showNotification(text string) {
+func (t gtkTray) setTooltip(text string) {
+	t.icon.SetTooltipMarkup(text)
+}
+
+func (gtkTray) notify(text string) {
 	notify.Init("update-notifier")
 	defer notify.UnInit()
 
@@ -55,10 +74,25 @@ func showNotification(text string) {
 	}
 }
 
-func userNotify(icon *gtk.StatusIcon) {
+// notifier holds the state of the update checks.
+type notifier struct {
+	tray     tray
+	procDir  string
+	simulate func() (string, error) // output of a simulated upgrade
+	now      func() time.Time
+
+	aptRunning   bool
+	aptLastCheck time.Time
+	updLastCheck time.Time
+	updAvailable int
+	updTooltip   int
+	updNotified  int
+}
+
+func (n *notifier) userNotify() {
 	var word1, word2 string
 
-	if updAvailable == 1 {
+	if n.updAvailable == 1 {
 		word1 = "is"
 		word2 = "update"
 	} else {
@@ -66,31 +100,28 @@ func userNotify(icon *gtk.StatusIcon) {
 		word2 = "updates"
 	}
 
-	if updAvailable != updTooltip {
-		icon.SetTooltipMarkup(fmt.Sprintf("%d %s available", updAvailable, word2))
-		updTooltip = updAvailable
+	if n.updAvailable != n.updTooltip {
+		n.tray.setTooltip(fmt.Sprintf("%d %s available", n.updAvailable, word2))
+		n.updTooltip = n.updAvailable
 	}
 
-	showIcon(icon)
+	n.tray.show()
 
-	if updAvailable != updNotified {
-		showNotification(fmt.Sprintf("There %s %d %s ready to install.", word1, updAvailable, word2))
-		updNotified = updAvailable
+	if n.updAvailable != n.updNotified {
+		n.tray.notify(fmt.Sprintf("There %s %d %s ready to install.", word1, n.updAvailable, word2))
+		n.updNotified = n.updAvailable
 	}
 }
 
 // Check if package manager is running (every 5 seconds).
-func isAptRunning() bool {
-	if time.Since(aptLastCheck) >= 5*time.Second {
-		aptRunning = false
+func (n *notifier) isAptRunning() bool {
+	if n.now().Sub(n.aptLastCheck) >= 5*time.Second {
+		n.aptRunning = false
 
-		dir, err := os.ReadDir("/proc")
+		dir, err := os.ReadDir(n.procDir)
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		reApt := regexp.MustCompile(`(?m:^(apt-get|dselect|aptitude)$)`)
-		reProcess := regexp.MustCompile(`^\d+$`)
 
 		for _, v := range dir {
 			if !v.IsDir() {
@@ -101,46 +132,77 @@ func isAptRunning() bool {
 				continue
 			}
 
-			comm, err := os.ReadFile(path.Join("/proc", v.Name(), "comm"))
+			comm, err := os.ReadFile(path.Join(n.procDir, v.Name(), "comm"))
 			if err != nil {
 				continue
 			}
 
 			if reApt.Match(comm) {
-				aptRunning = true
-				updLastCheck = time.Time{}
+				n.aptRunning = true
+				n.updLastCheck = time.Time{}
 				break
 			}
 		}
 
-		aptLastCheck = time.Now()
+		n.aptLastCheck = n.now()
 	}
 
-	return aptRunning
+	return n.aptRunning
+}
+
+// parseSummary returns the number of updates from the output of a simulated upgrade.
+func parseSummary(out string) (int, bool) {
+	sl := reSummary.FindStringSubmatch(out)
+	if len(sl) != 3 {
+		return 0, false
+	}
+
+	upgraded, err := strconv.Atoi(sl[1])
+	if err != nil {
+		return 0, false
+	}
+
+	newInstall, err := strconv.Atoi(sl[2])
+	if err != nil {
+		return 0, false
+	}
+
+	return upgraded + newInstall, true
 }
 
 // Check if updates are available (every 5 minutes).
-func updatesAvailable() int {
-	if time.Since(updLastCheck) >= 5*time.Minute {
-		var out bytes.Buffer
-
-		cmd := exec.Command("/usr/bin/apt-get", "-s", "dist-upgrade")
-		cmd.Stdout = &out
-		if err := cmd.Run(); err == nil {
-
-			if sl := regexp.MustCompile(`(?m:^(\d+) upgraded, (\d+) newly installed)`).FindStringSubmatch(out.String()); len(sl) == 3 {
-				if upgraded, err := strconv.Atoi(sl[1]); err == nil {
-					if newInstall, err := strconv.Atoi(sl[2]); err == nil {
-						updAvailable = upgraded + newInstall
-					}
-				}
+func (n *notifier) updatesAvailable() int {
+	if n.now().Sub(n.updLastCheck) >= 5*time.Minute {
+		if out, err := n.simulate(); err == nil {
+			if count, ok := parseSummary(out); ok {
+				n.updAvailable = count
 			}
 		}
 
-		updLastCheck = time.Now()
+		n.updLastCheck = n.now()
 	}
 
-	return updAvailable
+	return n.updAvailable
+}
+
+// tick is one pass of the main loop.
+func (n *notifier) tick() {
+	if !n.isAptRunning() && n.updatesAvailable() > 0 {
+		n.userNotify()
+	} else {
+		n.tray.hide()
+	}
+}
+
+// aptSimulate returns the output of a simulated upgrade, run with the given apt-get binary.
+func aptSimulate(binary string) (string, error) {
+	var out bytes.Buffer
+
+	cmd := exec.Command(binary, "-s", "dist-upgrade")
+	cmd.Stdout = &out
+	err := cmd.Run()
+
+	return out.String(), err
 }
 
 func main() {
@@ -152,15 +214,18 @@ func main() {
 	icon.SetTitle("update-notifier")
 	icon.SetVisible(false)
 
+	n := &notifier{
+		tray:     gtkTray{icon: icon},
+		procDir:  procDir,
+		simulate: func() (string, error) { return aptSimulate(aptGet) },
+		now:      time.Now,
+	}
+
 	// Don't fight with system notifications during login.
 	time.Sleep(15 * time.Second)
 
 	for {
-		if !isAptRunning() && updatesAvailable() > 0 {
-			userNotify(icon)
-		} else {
-			hideIcon(icon)
-		}
+		n.tick()
 
 		for gtk.EventsPending() {
 			gtk.MainIteration()
