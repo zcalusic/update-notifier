@@ -321,16 +321,18 @@ func TestAptSimulate(t *testing.T) {
 	}
 }
 
-func TestAptSimulateKeepsLocale(t *testing.T) {
+func TestAptSimulateUntranslated(t *testing.T) {
 	t.Setenv("LC_ALL", "hr_HR.UTF-8")
 
-	out, err := aptSimulate(writeScript(t, `echo "$LC_ALL"`))
+	script := writeScript(t, `if [ "$LC_ALL" = C ]; then echo "2 upgraded, 1 newly installed"; else echo "2 nadogradeno"; fi`)
+
+	out, err := aptSimulate(script)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if out != "hr_HR.UTF-8\n" {
-		t.Errorf("got %q", out)
+	if count, ok := parseSummary(out); count != 3 || !ok {
+		t.Errorf("got %d, %v from %q, want 3, true", count, ok, out)
 	}
 }
 

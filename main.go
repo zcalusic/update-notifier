@@ -199,6 +199,7 @@ func aptSimulate(binary string) (string, error) {
 	var out bytes.Buffer
 
 	cmd := exec.Command(binary, "-s", "dist-upgrade")
+	cmd.Env = append(os.Environ(), "LC_ALL=C") // the summary line is parsed, so it must not be translated
 	cmd.Stdout = &out
 	err := cmd.Run()
 
