@@ -6,10 +6,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -31,34 +34,28 @@ func summary(upgraded int) string {
 	return "Reading package lists...\n" + strconv.Itoa(upgraded) + " upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n"
 }
 
-// writeProc creates a fake /proc holding one process for each command name.
-func writeProc(t *testing.T, comms ...string) string {
+// lockLine returns a /proc/locks line for a lock held on the file.
+func lockLine(t *testing.T, file string) string {
 	t.Helper()
 
-	root := t.TempDir()
-
-	// Entries that are not processes must be skipped.
-	if err := os.MkdirAll(filepath.Join(root, "sys"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "sys", "comm"), []byte("apt-get\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "99"), []byte("apt-get\n"), 0o644); err != nil {
+	var st syscall.Stat_t
+	if err := syscall.Stat(file, &st); err != nil {
 		t.Fatal(err)
 	}
 
-	for i, comm := range comms {
-		dir := filepath.Join(root, strconv.Itoa(i+100))
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(comm+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	return fmt.Sprintf("1: POSIX  ADVISORY  WRITE 1234 fe:01:%d 0 EOF\n", st.Ino)
+}
+
+// touch creates an empty file in dir.
+func touch(t *testing.T, dir, name string) string {
+	t.Helper()
+
+	file := filepath.Join(dir, name)
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	return root
+	return file
 }
 
 // harness is a notifier with a controllable clock and apt-get result.
@@ -71,21 +68,41 @@ type harness struct {
 	simRuns int
 }
 
-func newHarness(t *testing.T, comms ...string) *harness {
+func newHarness(t *testing.T) *harness {
 	t.Helper()
 
+	dir := t.TempDir()
 	h := &harness{fake: &fakeTray{}, clock: time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)}
 	h.notifier = &notifier{
-		tray:    h.fake,
-		procDir: writeProc(t, comms...),
-		now:     func() time.Time { return h.clock },
+		tray:      h.fake,
+		locksFile: filepath.Join(dir, "locks"),
+		lockFiles: []string{touch(t, dir, "lock-frontend"), touch(t, dir, "lock"), touch(t, dir, "lists-lock")},
+		now:       func() time.Time { return h.clock },
 		simulate: func() (string, error) {
 			h.simRuns++
 			return h.out, h.err
 		},
 	}
 
+	h.writeLocks(t, "")
+
 	return h
+}
+
+// writeLocks sets the contents of the fake /proc/locks.
+func (h *harness) writeLocks(t *testing.T, contents string) {
+	t.Helper()
+
+	if err := os.WriteFile(h.locksFile, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// holdLock pretends that a package manager has locked the first lock file.
+func (h *harness) holdLock(t *testing.T) {
+	t.Helper()
+
+	h.writeLocks(t, lockLine(t, h.lockFiles[0]))
 }
 
 func TestParseSummary(t *testing.T) {
@@ -115,25 +132,76 @@ func TestParseSummary(t *testing.T) {
 }
 
 func TestIsAptRunning(t *testing.T) {
+	inode := func(t *testing.T, file string) string {
+		t.Helper()
+
+		return strings.Fields(lockLine(t, file))[5]
+	}
+
 	tests := []struct {
 		name  string
-		comms []string
+		locks func(t *testing.T, h *harness) string
 		want  bool
 	}{
-		{"apt-get", []string{"bash", "apt-get"}, true},
-		{"dselect", []string{"dselect"}, true},
-		{"aptitude", []string{"aptitude", "bash"}, true},
-		{"none", []string{"bash", "xfce4-panel"}, false},
-		{"apt is not recognized", []string{"apt"}, false},
-		{"synaptic is not recognized", []string{"synaptic"}, false},
-		{"unattended-upgrades is not recognized", []string{"unattended-upgr"}, false},
-		{"similar names", []string{"apt-cache", "apt-get2", "myapt-get"}, false},
-		{"no processes", nil, false},
+		{"no locks", func(*testing.T, *harness) string { return "" }, false},
+		{"frontend lock", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			return lockLine(t, h.lockFiles[0])
+		}, true},
+		{"dpkg lock", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			return lockLine(t, h.lockFiles[1])
+		}, true},
+		{"lists lock", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			return lockLine(t, h.lockFiles[2])
+		}, true},
+		{"among other locks", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			return lockLine(t, touch(t, t.TempDir(), "other")) + lockLine(t, h.lockFiles[1])
+		}, true},
+		{"unrelated lock", func(t *testing.T, _ *harness) string {
+			t.Helper()
+
+			return lockLine(t, touch(t, t.TempDir(), "other"))
+		}, false},
+		{"flock lock", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			_, rest, _ := strings.Cut(lockLine(t, h.lockFiles[0]), "fe:01:")
+			return "2: FLOCK  ADVISORY  WRITE 99 fe:01:" + rest
+		}, true},
+		{"other device, as on btrfs", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			_, rest, _ := strings.Cut(lockLine(t, h.lockFiles[0]), "fe:01:")
+			return "1: POSIX  ADVISORY  WRITE 1234 00:2f:" + rest
+		}, true},
+		{"inode is the whole number", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			return "1: POSIX  ADVISORY  WRITE 1234 fe:01:1" + inode(t, h.lockFiles[0])[6:] + " 0 EOF\n"
+		}, false},
+		{"lock file not created yet", func(t *testing.T, h *harness) string {
+			t.Helper()
+
+			if err := os.Remove(h.lockFiles[0]); err != nil {
+				t.Fatal(err)
+			}
+
+			return lockLine(t, h.lockFiles[1])
+		}, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := newHarness(t, tt.comms...)
+			h := newHarness(t)
+			h.writeLocks(t, tt.locks(t, h))
+
 			if got := h.isAptRunning(); got != tt.want {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
@@ -142,13 +210,13 @@ func TestIsAptRunning(t *testing.T) {
 }
 
 func TestIsAptRunningThrottled(t *testing.T) {
-	h := newHarness(t, "bash")
+	h := newHarness(t)
 
 	if h.isAptRunning() {
 		t.Fatal("no package manager is running yet")
 	}
 
-	h.procDir = writeProc(t, "apt-get")
+	h.holdLock(t)
 
 	h.clock = h.clock.Add(4 * time.Second)
 	if h.isAptRunning() {
@@ -272,7 +340,7 @@ func TestTickWhileAptRuns(t *testing.T) {
 	}
 
 	// A package manager starts: the icon goes away, and apt-get isn't run.
-	h.procDir = writeProc(t, "apt-get")
+	h.holdLock(t)
 	h.clock = h.clock.Add(5 * time.Second)
 	h.tick()
 
@@ -281,7 +349,7 @@ func TestTickWhileAptRuns(t *testing.T) {
 	}
 
 	// It finishes: the count is refreshed right away, not 5 minutes after the last check.
-	h.procDir = writeProc(t, "bash")
+	h.writeLocks(t, "")
 	h.out = summary(0)
 	h.clock = h.clock.Add(5 * time.Second)
 	h.tick()
@@ -361,11 +429,11 @@ func TestTickDoesNotNotifyAgainAfterAptRuns(t *testing.T) {
 	h.out = summary(5)
 	h.tick()
 
-	h.procDir = writeProc(t, "apt-get")
+	h.holdLock(t)
 	h.clock = h.clock.Add(5 * time.Second)
 	h.tick()
 
-	h.procDir = writeProc(t, "bash")
+	h.writeLocks(t, "")
 	h.clock = h.clock.Add(5 * time.Second)
 	h.tick()
 

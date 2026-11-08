@@ -14,9 +14,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path"
 	"regexp"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-gtk/glib"
@@ -25,13 +25,21 @@ import (
 )
 
 const (
-	aptGet  = "/usr/bin/apt-get"
-	procDir = "/proc"
+	aptGet    = "/usr/bin/apt-get"
+	procLocks = "/proc/locks"
 )
 
 var (
-	reApt     = regexp.MustCompile(`(?m:^(apt-get|dselect|aptitude)$)`)
-	reProcess = regexp.MustCompile(`^\d+$`)
+	// A lock held on any of these means that a package manager is at work. The files are readable only by root, but
+	// the kernel reports their locks to everyone in /proc/locks.
+	packageLocks = []string{
+		"/var/lib/dpkg/lock-frontend",
+		"/var/lib/dpkg/lock",
+		"/var/lib/apt/lists/lock",
+	}
+
+	// The inode of a locked file, from a line like "1: POSIX ADVISORY WRITE 1234 fe:01:131 0 EOF".
+	reLock    = regexp.MustCompile(`[0-9a-f]+:[0-9a-f]+:(\d+) `)
 	reSummary = regexp.MustCompile(`(?m:^(\d+) upgraded, (\d+) newly installed)`)
 )
 
@@ -76,10 +84,11 @@ func (gtkTray) notify(text string) {
 
 // notifier holds the state of the update checks.
 type notifier struct {
-	tray     tray
-	procDir  string
-	simulate func() (string, error) // output of a simulated upgrade
-	now      func() time.Time
+	tray      tray
+	locksFile string                 // /proc/locks
+	lockFiles []string               // files that a package manager locks
+	simulate  func() (string, error) // output of a simulated upgrade
+	now       func() time.Time
 
 	aptRunning   bool
 	aptLastCheck time.Time
@@ -113,35 +122,39 @@ func (n *notifier) userNotify() {
 	}
 }
 
+// lockHeld reports whether any of the lock files is locked. Only inodes are compared, because on some filesystems (btrfs)
+// the device numbers in /proc/locks differ from the ones that stat returns.
+func (n *notifier) lockHeld() bool {
+	locks, err := os.ReadFile(n.locksFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	held := make(map[string]bool)
+	for _, m := range reLock.FindAllSubmatch(locks, -1) {
+		held[string(m[1])] = true
+	}
+
+	for _, file := range n.lockFiles {
+		var st syscall.Stat_t
+		if err := syscall.Stat(file, &st); err != nil {
+			continue // not created yet
+		}
+
+		if held[strconv.FormatUint(st.Ino, 10)] {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Check if package manager is running (every 5 seconds).
 func (n *notifier) isAptRunning() bool {
 	if n.now().Sub(n.aptLastCheck) >= 5*time.Second {
-		n.aptRunning = false
-
-		dir, err := os.ReadDir(n.procDir)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		for _, v := range dir {
-			if !v.IsDir() {
-				continue
-			}
-
-			if !reProcess.MatchString(v.Name()) {
-				continue
-			}
-
-			comm, err := os.ReadFile(path.Join(n.procDir, v.Name(), "comm"))
-			if err != nil {
-				continue
-			}
-
-			if reApt.Match(comm) {
-				n.aptRunning = true
-				n.updLastCheck = time.Time{}
-				break
-			}
+		n.aptRunning = n.lockHeld()
+		if n.aptRunning {
+			n.updLastCheck = time.Time{}
 		}
 
 		n.aptLastCheck = n.now()
@@ -220,10 +233,11 @@ func main() {
 	icon.SetVisible(false)
 
 	n := &notifier{
-		tray:     gtkTray{icon: icon},
-		procDir:  procDir,
-		simulate: func() (string, error) { return aptSimulate(aptGet) },
-		now:      time.Now,
+		tray:      gtkTray{icon: icon},
+		locksFile: procLocks,
+		lockFiles: packageLocks,
+		simulate:  func() (string, error) { return aptSimulate(aptGet) },
+		now:       time.Now,
 	}
 
 	// Don't fight with system notifications during login.
