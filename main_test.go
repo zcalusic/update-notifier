@@ -507,3 +507,45 @@ func TestUnreadableLocksAreNotFatal(t *testing.T) {
 		t.Errorf("log %q, want one more line after 5 seconds", h.logs.String())
 	}
 }
+
+func TestRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		code    int
+		started bool
+		stdout  string
+		stderr  string
+	}{
+		{name: "no arguments", started: true},
+		{name: "version", args: []string{"-version"}, stdout: "update-notifier " + Version + "\n"},
+		{name: "double dash version", args: []string{"--version"}, stdout: "update-notifier " + Version + "\n"},
+		{name: "help", args: []string{"-h"}, stdout: usage},
+		{name: "long help", args: []string{"--help"}, stdout: usage},
+		{name: "unknown flag", args: []string{"-x"}, code: 2, stderr: "update-notifier: flag provided but not defined: -x\n" + usage},
+		{name: "extra argument", args: []string{"foo"}, code: 2, stderr: "update-notifier: unexpected argument \"foo\"\n" + usage},
+		{name: "version and extra argument", args: []string{"-version", "foo"}, code: 2, stderr: "update-notifier: unexpected argument \"foo\"\n" + usage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+
+			started := false
+			code := run(tt.args, &stdout, &stderr, func() { started = true })
+
+			if code != tt.code {
+				t.Errorf("exit status %d, want %d", code, tt.code)
+			}
+			if started != tt.started {
+				t.Errorf("started %v, want %v", started, tt.started)
+			}
+			if stdout.String() != tt.stdout {
+				t.Errorf("stdout %q, want %q", stdout.String(), tt.stdout)
+			}
+			if stderr.String() != tt.stderr {
+				t.Errorf("stderr %q, want %q", stderr.String(), tt.stderr)
+			}
+		})
+	}
+}

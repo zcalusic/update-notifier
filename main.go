@@ -10,7 +10,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -27,6 +30,14 @@ import (
 const (
 	aptGet    = "/usr/bin/apt-get"
 	procLocks = "/proc/locks"
+
+	usage = `Usage: update-notifier [-h] [-version]
+
+Shows an icon in the panel tray area and a notification when Debian package updates are available.
+
+  -h        show this help
+  -version  show the version
+`
 )
 
 var (
@@ -238,7 +249,8 @@ func aptSimulate(binary string) (string, error) {
 	return out.String(), err
 }
 
-func main() {
+// serve shows the tray icon and keeps it up to date, forever.
+func serve() {
 	// https://github.com/mattn/go-gtk/issues/251
 	gtk.Init(nil)
 	glib.SetApplicationName("update-notifier")
@@ -268,4 +280,39 @@ func main() {
 
 		time.Sleep(time.Second / 10)
 	}
+}
+
+// run handles the command line, and calls start if there's nothing else to do.
+func run(args []string, stdout, stderr io.Writer, start func()) int {
+	flags := flag.NewFlagSet("update-notifier", flag.ContinueOnError)
+	flags.SetOutput(io.Discard) // messages are printed below
+	version := flags.Bool("version", false, "")
+
+	err := flags.Parse(args)
+	if err == nil && flags.NArg() > 0 {
+		err = fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		_, _ = fmt.Fprint(stdout, usage)
+
+		return 0
+	case err != nil:
+		_, _ = fmt.Fprintf(stderr, "update-notifier: %v\n%s", err, usage)
+
+		return 2
+	case *version:
+		_, _ = fmt.Fprintf(stdout, "update-notifier %s\n", Version)
+
+		return 0
+	}
+
+	start()
+
+	return 0
+}
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, serve))
 }
